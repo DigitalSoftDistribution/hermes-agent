@@ -1,0 +1,76 @@
+name: clickup-platform
+label: ClickUp Chat
+kind: platform
+version: 1.0.0
+description: >
+  ClickUp Chat (v3) gateway adapter for Hermes Agent.
+  Runs an aiohttp webhook server that receives ClickUp "Chat webhook
+  Automation" POSTs (verified with a shared secret header — ClickUp chat
+  automations have no HMAC). The webhook payload is thin (it carries only a
+  message/comment id and channel id), so the adapter reads the full message
+  body back via the ClickUp Chat REST API before relaying it to the Hermes
+  agent. Outbound replies prefer an in-thread reply
+  (POST /chat/messages/{id}/replies) and fall back to a top-level channel
+  message. Inbound deliveries are deduplicated (ClickUp retries failed
+  deliveries for ~75 min) and self-authored messages are skipped to prevent
+  reply loops.
+author: Hermes Agent contributors
+# ``requires_env`` and ``optional_env`` entries are surfaced in the
+# ``hermes config`` UI via the platform-plugin env var injector in
+# ``hermes_cli/config.py``.
+requires_env:
+  - name: CLICKUP_API_KEY
+    description: "ClickUp personal API token (starts with pk_). ClickUp > Settings > Apps > API Token."
+    prompt: "ClickUp API token (pk_...)"
+    url: "https://app.clickup.com/settings/apps"
+    password: true
+  - name: CLICKUP_TEAM_ID
+    description: "ClickUp Workspace (team) ID — the numeric id in your ClickUp URL (app.clickup.com/<team_id>/...)."
+    prompt: "ClickUp Workspace (team) ID"
+    url: "https://app.clickup.com/"
+    password: false
+optional_env:
+  - name: CLICKUP_PORT
+    description: "Webhook listen port (default: 8650)"
+    prompt: "Webhook port"
+    password: false
+  - name: CLICKUP_HOST
+    description: "Webhook bind host (default: 127.0.0.1 — put a reverse proxy / tunnel in front)"
+    prompt: "Webhook host"
+    password: false
+  - name: CLICKUP_WEBHOOK_SECRET
+    description: "Shared secret. The Chat webhook Automation must send it in the X-Hermes-Secret header; requests without a matching secret are rejected."
+    prompt: "Webhook shared secret"
+    password: true
+  - name: CLICKUP_WEBHOOK_SECRET_HEADER
+    description: "Header name carrying the shared secret (default: X-Hermes-Secret)"
+    prompt: "Secret header name"
+    password: false
+  - name: CLICKUP_REQUIRE_MENTION
+    description: "Require an @mention of the bot in channels before responding (true/false, default: false)"
+    prompt: "Require @mention in channels? (true/false)"
+    password: false
+  - name: CLICKUP_ALLOWED_CHANNELS
+    description: "If set, the bot ONLY responds in these comma-separated channel IDs (whitelist)"
+    prompt: "Allowed channel IDs (comma-separated)"
+    password: false
+  - name: CLICKUP_FREE_RESPONSE_CHANNELS
+    description: "Channel IDs where the bot responds without an @mention even when CLICKUP_REQUIRE_MENTION is true"
+    prompt: "Free-response channel IDs (comma-separated)"
+    password: false
+  - name: CLICKUP_ALLOWED_USERS
+    description: "Comma-separated ClickUp user IDs allowed to talk to the bot"
+    prompt: "Allowed user IDs (comma-separated)"
+    password: false
+  - name: CLICKUP_ALLOW_ALL_USERS
+    description: "Allow any ClickUp user to talk to the bot (dev only — disables the user allowlist)"
+    prompt: "Allow all users? (true/false)"
+    password: false
+  - name: CLICKUP_HOME_CHANNEL
+    description: "Default channel ID for cron / notification delivery"
+    prompt: "Home channel ID (or empty)"
+    password: false
+  - name: CLICKUP_HOME_CHANNEL_NAME
+    description: "Display name for the ClickUp home channel"
+    prompt: "Home channel display name"
+    password: false

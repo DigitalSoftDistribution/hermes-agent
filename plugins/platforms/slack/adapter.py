@@ -2507,6 +2507,37 @@ class SlackAdapter(BasePlatformAdapter):
         metadata = self._extract_assistant_thread_metadata(event)
         self._cache_assistant_thread_metadata(metadata)
         self._seed_assistant_thread_session(metadata)
+        await self._set_assistant_suggested_prompts(metadata)
+
+    async def _set_assistant_suggested_prompts(self, metadata: Dict[str, str]) -> None:
+        """Show one-tap suggested prompts in the Slack Assistant pane on thread start.
+
+        Best-effort: silently ignores if the app lacks ``assistant:write`` or the
+        thread is not in an assistant-enabled context (falls back to no prompts).
+        Fires on both ``assistant_thread_started`` and ``assistant_thread_context_changed``
+        so the pane reflects the current context.
+        """
+        if not self._app:
+            return
+        channel_id = metadata.get("channel_id", "")
+        thread_ts = metadata.get("thread_ts", "")
+        if not channel_id or not thread_ts:
+            return
+        prompts = [
+            {"title": "Fleet deploy health", "message": "What is the deploy health across the fleet right now?"},
+            {"title": "PRs & issues", "message": "Summarize open PRs and Linear issues across the active repos."},
+            {"title": "Support queue", "message": "Triage the KluczeSoft/LiveAgent support queue and surface anything urgent."},
+            {"title": "Plan a feature", "message": "Help me plan a new feature end-to-end - decompose it and route to the right specialists."},
+        ]
+        try:
+            await self._get_client(channel_id).assistant_threads_setSuggestedPrompts(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                title="How can Hermes help?",
+                prompts=prompts,
+            )
+        except Exception as e:
+            logger.debug("[Slack] assistant.threads.setSuggestedPrompts failed: %s", e)
 
     async def _handle_slack_file_shared(self, event: dict) -> None:
         """Fallback for Slack file shares that do not arrive as message.files.

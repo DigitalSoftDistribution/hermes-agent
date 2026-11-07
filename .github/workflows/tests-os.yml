@@ -92,13 +92,15 @@ jobs:
             runner: macos-latest
             marker: macos
             slice: 2/2
+          # Fork: the DigitalSoftDistribution org has no larger runners; its public fork runs this on the free standard runner.
           - name: Windows-only tests
-            runner: windows-latest-32-core
+            runner: ${{ github.repository_owner == 'DigitalSoftDistribution' && 'windows-latest' || 'windows-latest-32-core' }}
             marker: windows
+            timeout: ${{ github.repository_owner == 'DigitalSoftDistribution' && 60 || 30 }}
           - name: Windows-only tests (arm64)
-            runner: windows-latest-32-arm-core
+            runner: ${{ github.repository_owner == 'DigitalSoftDistribution' && 'windows-11-arm' || 'windows-latest-32-arm-core' }}
             marker: windows
-            timeout: 60
+            timeout: ${{ github.repository_owner == 'DigitalSoftDistribution' && 120 || 60 }}
     steps:
       - name: Checkout code
         uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
@@ -193,7 +195,7 @@ jobs:
         env:
           # These files spawn nested PowerShell trees. CPU-count parallelism
           # starves cold child startup before the fixture's idle deadline.
-          HERMES_TEST_WORKERS: ${{ matrix.marker == 'windows' && (runner.arch == 'ARM64' && '16' || '16') || '' }}
+          HERMES_TEST_WORKERS: ${{ matrix.marker == 'windows' && (github.repository_owner == 'DigitalSoftDistribution' && '4' || '16') || '' }}
           HERMES_TEST_SLICE: ${{ matrix.slice || '' }}
           # Belt-and-suspenders with tests/conftest.py's env blanking: no
           # test may reach a real provider API.

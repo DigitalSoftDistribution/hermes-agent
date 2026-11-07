@@ -563,7 +563,10 @@ DEFAULT_CONFIG = {
         "non_interactive_hard_stop_enabled": True,
         "warn_after": {"exact_failure": 2, "same_tool_failure": 3, "idempotent_no_progress": 2},
         "hard_stop_after": {
-            "exact_failure": 5, "same_tool_failure": 8, "idempotent_no_progress": 5
+            "exact_failure": 5, "same_tool_failure": 8, "idempotent_no_progress": 5,
+            # Failed calls of ANY tools in one turn. same_tool_failure keys per tool (per INNER tool
+            # through the tool_call bridge); this is the ceiling when many different tools fail.
+            "total_tool_failure": 16,
         },
         # Per-turn hard ceilings for runaway-prone tools; counters reset every turn, always on
         # regardless of the thresholds above. Dozens of searches/subagents in ONE turn is already

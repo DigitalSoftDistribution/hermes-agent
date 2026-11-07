@@ -3109,6 +3109,7 @@
                 "iteration_budget",
                 "same_tool_failure",
                 "subagent_cap",
+                "total_tool_failure",
                 "web_search_cap"
               ]
             },

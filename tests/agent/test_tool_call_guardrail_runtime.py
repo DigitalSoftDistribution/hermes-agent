@@ -510,3 +510,33 @@ def test_guardrail_halt_emits_final_response_through_stream_delta_callback():
     assert halt_text in text_deltas, (
         f"halt message was never streamed; callback only saw {deltas!r}"
     )
+
+
+def test_total_tool_failure_halt_reply_names_the_cross_tool_cause_not_one_tool():
+    """Sixteen failures spread over sixteen different tools halt with the dedicated text, not the
+    generic "kept running <tool> N times" wording, which would blame only the last tool."""
+    agent = _make_agent("web_search", config=_hard_stop_config())
+    decision = None
+    for i in range(16):
+        decision = agent._tool_guardrails.after_call(
+            f"tool_{i}", {"query": f"q{i}"}, json.dumps({"error": "boom"}), failed=True
+        )
+
+    assert decision is not None and decision.code == "total_tool_failure_halt"
+    reply = agent._toolguard_controlled_halt_response(decision)
+    assert "16 tool calls failed this turn across different tools" in reply
+    assert "kept running" not in reply
+    assert "send `continue`" in reply
+
+
+def test_same_tool_failure_halt_reply_keeps_the_generic_wording():
+    agent = _make_agent("web_search", config=_hard_stop_config())
+    decision = None
+    for i in range(8):
+        decision = agent._tool_guardrails.after_call(
+            "web_search", {"query": f"q{i}"}, json.dumps({"error": "boom"}), failed=True
+        )
+
+    assert decision is not None and decision.code == "same_tool_failure_halt"
+    reply = agent._toolguard_controlled_halt_response(decision)
+    assert "I kept running web_search 8 times without making progress" in reply

@@ -1247,6 +1247,12 @@ class AIAgent(
 
     def _toolguard_controlled_halt_response(self, decision: ToolGuardrailDecision) -> str:
         # Shown to the user as the reply, so no decision codes; the code stays in result["guardrail"].
+        if decision.code == "total_tool_failure_halt" and decision.message:
+            # Many different tools failed; the same-tool wording below would blame only the last one.
+            return (
+                f"{decision.message} The last result above shows what blocked it. Tell me how you'd "
+                "like to proceed, or send `continue` and I'll try a different approach."
+            )
         return (
             f"I stopped retrying because I kept running {decision.tool_name or 'the same tool'} "
             f"{decision.count} times without making progress. The last result above shows what "

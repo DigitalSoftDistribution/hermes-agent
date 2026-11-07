@@ -65,6 +65,13 @@ PROGRESS_RESET_TOOL_NAMES = frozenset({
     "cronjob_manage", "todo", "todo_list", "memory", "skill_manage",
 })
 
+# Tool Search deferral runs every deferred tool through the ``tool_call`` batch bridge
+# (tools.tool_search_catalog.TOOL_CALL_NAME), so the OUTER tool name of such a call is always
+# ``tool_call``. The same-tool failure counter keys on the INNER ``calls[i].name`` entries instead,
+# so failures of different deferred tools never add up as one tool. A literal, not an import: this
+# module stays free of the catalog's dependencies (a test pins the two names together).
+TOOL_CALL_BRIDGE_NAME = "tool_call"
+
 _BOOL_FIELDS = ("warnings_enabled", "hard_stop_enabled", "non_interactive_hard_stop_enabled")
 # Threshold field -> (nested section, nested key). The flat legacy key is the field name itself.
 _THRESHOLD_SOURCES: dict[str, tuple[str, str]] = {
@@ -73,6 +80,7 @@ _THRESHOLD_SOURCES: dict[str, tuple[str, str]] = {
     "no_progress_warn_after": ("warn_after", "idempotent_no_progress"),
     "exact_failure_block_after": ("hard_stop_after", "exact_failure"),
     "same_tool_failure_halt_after": ("hard_stop_after", "same_tool_failure"),
+    "total_tool_failure_halt_after": ("hard_stop_after", "total_tool_failure"),
     "no_progress_block_after": ("hard_stop_after", "idempotent_no_progress"),
 }
 
@@ -125,6 +133,10 @@ class ToolCallGuardrailConfig:
     exact_failure_block_after: int = 5
     same_tool_failure_warn_after: int = 3
     same_tool_failure_halt_after: int = 8
+    # Failed calls of ANY tools in one turn (failure-tolerant tools excluded; a successful
+    # mutation resets it). Higher than same_tool_failure_halt_after on purpose: it catches a turn
+    # cycling through many different failing tool paths, which per-tool counters never see.
+    total_tool_failure_halt_after: int = 16
     no_progress_warn_after: int = 2
     no_progress_block_after: int = 5
     idempotent_tools: frozenset[str] = field(default_factory=lambda: IDEMPOTENT_TOOL_NAMES)
@@ -256,6 +268,10 @@ _DECISION_MESSAGES: dict[str, str] = {
         "Stopped {tool_name}: it failed {count} times this turn. "
         "Stop retrying the same failing tool path and choose a different approach."
     ),
+    "total_tool_failure_halt": (
+        "Stopped {tool_name}: {count} tool calls failed this turn across different tools. "
+        "Stop cycling through failing tool paths; report the blocker or choose a different approach."
+    ),
     "repeated_exact_failure_warning": (
         "{tool_name} has failed {count} times with identical arguments. This looks like a loop; "
         "inspect the error and change strategy instead of retrying it unchanged."
@@ -314,6 +330,8 @@ class ToolCallGuardrailController:
     def reset_for_turn(self) -> None:
         self._exact_failure_counts: dict[ToolCallSignature, int] = {}
         self._same_tool_failure_counts: dict[str, int] = {}
+        # failed calls of any non-failure-tolerant tool this turn; a successful mutation resets it
+        self._turn_tool_failure_count: int = 0
         # signature -> a mutating call succeeded since its last failure
         self._progress_since_failure: dict[ToolCallSignature, bool] = {}
         self._no_progress: dict[ToolCallSignature, tuple[str, int]] = {}
@@ -388,8 +406,11 @@ class ToolCallGuardrailController:
             if self._progress_since_failure.pop(signature, False):
                 self._exact_failure_counts.pop(signature, None)
             exact_count = self._exact_failure_counts[signature] = self._exact_failure_counts.get(signature, 0) + 1
-            same_count = self._same_tool_failure_counts[tool_name] = self._same_tool_failure_counts.get(tool_name, 0) + 1
+            # Through the tool_call bridge ``tool_name`` is always ``tool_call``: count per INNER tool.
+            failed_tool, same_count = self._count_same_tool_failure(tool_name, args)
             self._no_progress.pop(signature, None)
+            if failed_tool not in FAILURE_TOLERANT_TOOL_NAMES:
+                self._turn_tool_failure_count += 1
             # same_tool_failure counts DIFFERENT args on one tool; for failure-tolerant
             # tools a run of distinct red commands is diagnosis, not a loop — warn, never halt.
             if (
@@ -400,26 +421,41 @@ class ToolCallGuardrailController:
                 # the same idempotent_no_progress threshold. Pollers stay exempt (an unchanged poll is
                 # progress).
                 self.config.hard_stop_enabled
-                and tool_name not in FAILURE_TOLERANT_TOOL_NAMES
+                and failed_tool not in FAILURE_TOLERANT_TOOL_NAMES
                 and same_count >= self.config.same_tool_failure_halt_after
             ):
-                return self._decide("halt", "same_tool_failure_halt", tool_name, same_count, signature)
+                return self._decide("halt", "same_tool_failure_halt", failed_tool, same_count, signature)
+            # Different tools failing in turn never trip same_tool_failure; the per-turn total still
+            # ends a turn that cycles through many distinct failing tool paths without progress.
+            if (
+                self.config.hard_stop_enabled
+                and self._turn_tool_failure_count >= self.config.total_tool_failure_halt_after
+            ):
+                return self._decide(
+                    "halt", "total_tool_failure_halt", failed_tool, self._turn_tool_failure_count, signature,
+                )
             if warnings and exact_count >= self.config.exact_failure_warn_after:
-                return self._decide("warn", "repeated_exact_failure_warning", tool_name, exact_count, signature)
+                return self._decide("warn", "repeated_exact_failure_warning", failed_tool, exact_count, signature)
             if warnings and same_count >= self.config.same_tool_failure_warn_after:
                 return self._decide(
-                    "warn", "same_tool_failure_warning", tool_name, same_count, signature,
-                    message=_tool_failure_recovery_hint(tool_name, same_count),
+                    "warn", "same_tool_failure_warning", failed_tool, same_count, signature,
+                    message=_tool_failure_recovery_hint(failed_tool, same_count),
                 )
             return ToolGuardrailDecision(tool_name=tool_name, count=exact_count, signature=signature)
 
         self._exact_failure_counts.pop(signature, None)
-        self._same_tool_failure_counts.pop(tool_name, None)
+        tool_names = self._same_tool_failure_keys(tool_name, args)
+        for name in tool_names:
+            self._same_tool_failure_counts.pop(name, None)
         # A successful mutation is progress for every failing signature still counted
         # this turn. Pure loops never mutate between attempts, so the replay detector keeps its teeth.
-        if tool_name in PROGRESS_RESET_TOOL_NAMES or file_mutation_result_landed(tool_name, result):
+        if (
+            any(name in PROGRESS_RESET_TOOL_NAMES for name in tool_names)
+            or file_mutation_result_landed(tool_name, result)
+        ):
             self._progress_since_failure.update(dict.fromkeys(self._exact_failure_counts, True))
             self._same_tool_failure_counts.clear()
+            self._turn_tool_failure_count = 0
         if not self._is_idempotent(tool_name):
             self._no_progress.pop(signature, None)
             return ToolGuardrailDecision(tool_name=tool_name, signature=signature)
@@ -434,6 +470,22 @@ class ToolCallGuardrailController:
 
     def _is_idempotent(self, tool_name: str) -> bool:
         return tool_name not in self.config.mutating_tools and tool_name in self.config.idempotent_tools
+
+    def _same_tool_failure_keys(self, tool_name: str, args: Mapping[str, Any]) -> tuple[str, ...]:
+        """Keys the same-tool failure counter uses for one call: the inner tool names of a
+        ``tool_call`` bridge batch (the outer name when none can be read), else the tool name."""
+        if tool_name != TOOL_CALL_BRIDGE_NAME:
+            return (tool_name,)
+        return bridge_inner_tool_names(args) or (tool_name,)
+
+    def _count_same_tool_failure(self, tool_name: str, args: Mapping[str, Any]) -> tuple[str, int]:
+        """Add one failure to every key of this call; return the key with the highest count."""
+        worst_name, worst_count = tool_name, 0
+        for name in self._same_tool_failure_keys(tool_name, args):
+            count = self._same_tool_failure_counts[name] = self._same_tool_failure_counts.get(name, 0) + 1
+            if count > worst_count:
+                worst_name, worst_count = name, count
+        return worst_name, worst_count
 
     def observe_call(
         self, tool_name: str, args: Mapping[str, Any] | None, result: str | None,
@@ -572,6 +624,25 @@ def append_toolguard_guidance(result: str, decision: ToolGuardrailDecision) -> s
         return result
     label = "Tool loop hard stop" if decision.action == "halt" else "Tool loop warning"
     return (result or "") + f"\n\n[{label}: {decision.code}; count={decision.count}; {decision.message}]"
+
+
+def bridge_inner_tool_names(args: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Inner tool names of a ``tool_call`` batch, ``{"calls": [{"name": ..., "arguments": ...}, ...]}``,
+    deduplicated in call order. Empty when the batch shape cannot be read, so callers fall back
+    to the outer name instead of guessing."""
+    if not isinstance(args, Mapping):
+        return ()
+    entries = args.get("calls")
+    if isinstance(entries, str):
+        entries = safe_json_loads(entries)
+    if not isinstance(entries, list):
+        return ()
+    names: list[str] = []
+    for entry in entries:
+        name = entry.get("name") if isinstance(entry, Mapping) else None
+        if isinstance(name, str) and name.strip() and name.strip() not in names:
+            names.append(name.strip())
+    return tuple(names)
 
 
 def _tool_failure_recovery_hint(tool_name: str, count: int) -> str:

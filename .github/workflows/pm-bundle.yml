@@ -57,6 +57,8 @@ concurrency:
 jobs:
   bundle:
     name: bundle ${{ matrix.target.label }}
+    # Fork: the DigitalSoftDistribution org has no larger Windows runners; skipped there.
+    if: github.repository_owner != 'DigitalSoftDistribution'
     runs-on: ${{ matrix.target.runner }}
     # Leave time for setup, cache saves and smoke tests around the wheel build.
     timeout-minutes: 180

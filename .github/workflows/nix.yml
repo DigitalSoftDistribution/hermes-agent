@@ -78,7 +78,8 @@ jobs:
     needs: [detect]
     # Release runs force the lane: a stable candidate must build the flake
     # no matter what its diff touches.
-    if: needs.detect.outputs.nix == 'true' || inputs.release == true
+    # Fork: the DigitalSoftDistribution org has no larger runners and the fleet does not ship the Nix package; skipped there.
+    if: github.repository_owner != 'DigitalSoftDistribution' && (needs.detect.outputs.nix == 'true' || inputs.release == true)
     # The build compiles the package and its whole dependency closure, so this
     # takes minutes and not seconds when the cache misses. `nix flake check`
     # builds 21 checks, and --max-jobs defaults to the core count. It uses the

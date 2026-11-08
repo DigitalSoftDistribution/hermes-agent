@@ -19,8 +19,9 @@ jobs:
     #
     # One larger runner installs one time. vitest, tsc and eslint each size
     # their own worker pool from the core count.
-    runs-on: ubuntu-latest-32-core
-    timeout-minutes: 30
+    # Fork: the DigitalSoftDistribution org has no larger runners; its public fork runs this on the free standard runner.
+    runs-on: ${{ github.repository_owner == 'DigitalSoftDistribution' && 'ubuntu-latest' || 'ubuntu-latest-32-core' }}
+    timeout-minutes: ${{ github.repository_owner == 'DigitalSoftDistribution' && 60 || 30 }}
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
         with:

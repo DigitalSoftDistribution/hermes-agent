@@ -23,6 +23,8 @@ concurrency:
 jobs:
   windows-bundle-tools:
     name: Cold Windows SDK (${{ matrix.runner }})
+    # Fork: the DigitalSoftDistribution org has no larger Windows runners; skipped there.
+    if: github.repository_owner != 'DigitalSoftDistribution'
     runs-on: ${{ matrix.runner }}
     # Cold ARM64 npm extraction alone can exceed 15 minutes on the hosted runner.
     timeout-minutes: 45

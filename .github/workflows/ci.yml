@@ -10,9 +10,14 @@ name: CI
 # ``push:`` / ``pull_request:`` triggers of their own — everything flows
 # through this file.
 
+# A draft runs only `detect`. Naming `types` replaces the default, so
+# ready_for_review has to be listed or marking the PR ready starts no run.
+# GitHub docs, "Events that trigger workflows": by default a pull_request
+# workflow runs only for opened, synchronize or reopened.
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -33,7 +38,7 @@ jobs:
   # (all lanes true) so post-merge validation is never weakened.
   # ─────────────────────────────────────────────────────────────────────
   detect:
-    runs-on: ubuntu-latest
+    runs-on: coolify-ci
     outputs:
       python: ${{ steps.classify.outputs.python }}
       frontend: ${{ steps.classify.outputs.frontend }}
@@ -55,48 +60,49 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   tests:
     needs: detect
-    if: needs.detect.outputs.python == 'true'
+    if: needs.detect.outputs.python == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     uses: ./.github/workflows/tests.yml
 
   lint:
     needs: detect
-    if: needs.detect.outputs.python == 'true'
+    if: needs.detect.outputs.python == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     uses: ./.github/workflows/lint.yml
     with:
       event_name: ${{ needs.detect.outputs.event_name }}
 
   typecheck:
     needs: detect
-    if: needs.detect.outputs.frontend == 'true'
+    if: needs.detect.outputs.frontend == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     uses: ./.github/workflows/typecheck.yml
 
   docs-site:
     needs: detect
-    if: needs.detect.outputs.site == 'true'
+    if: needs.detect.outputs.site == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     uses: ./.github/workflows/docs-site-checks.yml
 
   history-check:
     needs: detect
-    if: needs.detect.outputs.event_name == 'pull_request'
+    if: needs.detect.outputs.event_name == 'pull_request' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     uses: ./.github/workflows/history-check.yml
 
   contributor-check:
     needs: detect
-    if: needs.detect.outputs.python == 'true'
+    if: needs.detect.outputs.python == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     uses: ./.github/workflows/contributor-check.yml
 
   uv-lockfile:
     needs: detect
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     uses: ./.github/workflows/uv-lockfile-check.yml
 
   docker-lint:
     needs: detect
-    if: needs.detect.outputs.docker_meta == 'true'
+    if: needs.detect.outputs.docker_meta == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     uses: ./.github/workflows/docker-lint.yml
 
   supply-chain:
     needs: detect
-    if: needs.detect.outputs.event_name == 'pull_request' && (needs.detect.outputs.scan == 'true' || needs.detect.outputs.deps == 'true' || needs.detect.outputs.mcp_catalog == 'true')
+    if: needs.detect.outputs.event_name == 'pull_request' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (needs.detect.outputs.scan == 'true' || needs.detect.outputs.deps == 'true' || needs.detect.outputs.mcp_catalog == 'true')
     uses: ./.github/workflows/supply-chain-audit.yml
     with:
       event_name: ${{ needs.detect.outputs.event_name }}
@@ -106,6 +112,7 @@ jobs:
 
   osv-scanner:
     needs: detect
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     uses: ./.github/workflows/osv-scanner.yml
 
   # ─────────────────────────────────────────────────────────────────────
@@ -128,8 +135,8 @@ jobs:
       - docker-lint
       - supply-chain
       - osv-scanner
-    if: always()
-    runs-on: ubuntu-latest
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    runs-on: coolify-ci
     steps:
       - name: Evaluate job results
         env:

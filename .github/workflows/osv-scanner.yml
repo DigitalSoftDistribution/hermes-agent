@@ -4,31 +4,33 @@ name: OSV-Scanner
 # database. Runs on every PR/push (via the ci.yml orchestrator's workflow_call)
 # and on a weekly schedule against main.
 #
-# This is detection-only — OSV-Scanner does NOT open PRs or modify pins.
+# This is detection-only. OSV-Scanner does not open PRs or modify pins.
 # It reports known CVEs in currently-pinned dependency versions so we can
-# decide when and how to patch on our own schedule. Our pinning strategy
-# (full SHA / exact version) is preserved; only the notification signal
-# is added.
+# decide when and how to patch. Our pinning strategy is unchanged.
 #
-# Complements the supply-chain-audit.yml workflow (which scans for malicious
-# code patterns in PR diffs) by covering the orthogonal "currently-pinned
-# dep became known-vulnerable" case.
+# Complements supply-chain-audit.yml (malicious patterns in a PR diff) by
+# covering the orthogonal case: a pinned dependency became known-vulnerable.
 #
-# Uses Google's officially-recommended reusable workflow, pinned by SHA.
-# Findings land in the repo's Security tab (Code Scanning > OSV-Scanner).
-# fail-on-vuln is disabled so the job does not block merges on pre-existing
-# vulnerabilities in pinned deps that we may need to patch deliberately.
+# This used to call Google's reusable workflow at
+# 9a498708959aeaef5ef730655706c5a1df1edbc2. That workflow's only job asks for
+# a GitHub-hosted runner, which this org does not allow, and we cannot edit
+# a third-party workflow. The same scanner and reporter actions that workflow
+# calls (8dc09193bb540e09b23da07ad7e30bd33bf87018, v2.3.8) now run here as
+# steps, on the org runner, with the same three lockfiles. fail-on-vuln stays
+# false, so a finding never fails a pull request.
+#
+# The Security-tab upload stays: it is the same codeql upload step, and this
+# workflow already grants security-events: write. No permission was added.
 
 on:
   workflow_call:
   schedule:
-    # Weekly scan against main — catches CVEs published after merge for
-    # deps that haven't changed since.
+    # Weekly scan against main: CVEs published after merge, for deps that
+    # have not changed since.
     - cron: "0 9 * * 1"
   workflow_dispatch:
 
 permissions:
-  # Required by the reusable workflow to upload SARIF to the Security tab.
   actions: read
   contents: read
   security-events: write
@@ -36,12 +38,35 @@ permissions:
 jobs:
   scan:
     name: Scan lockfiles
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
-    with:
-      # Scan explicit lockfiles rather than recursing, so we only look at
-      # the three sources of truth and skip vendored / test / worktree dirs.
-      scan-args: |-
-        --lockfile=uv.lock
-        --lockfile=package-lock.json
-        --lockfile=website/package-lock.json
-      fail-on-vuln: false
+    runs-on: coolify-ci
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Scan lockfiles
+        uses: google/osv-scanner-action/osv-scanner-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
+        with:
+          scan-args: |-
+            --lockfile=uv.lock
+            --lockfile=package-lock.json
+            --lockfile=website/package-lock.json
+            --format=json
+            --output=osv-results.json
+        continue-on-error: true
+
+      - name: Report findings
+        if: ${{ !cancelled() }}
+        uses: google/osv-scanner-action/osv-reporter-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
+        with:
+          scan-args: |-
+            --output=results.sarif
+            --new=osv-results.json
+            --gh-annotations=false
+            --fail-on-vuln=false
+
+      - name: Upload to code-scanning
+        if: ${{ !cancelled() }}
+        uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
+        with:
+          sarif_file: results.sarif

@@ -1254,8 +1254,10 @@ def switch_model(
                 error_message=msg,
             )
 
-    # Apply auto-correction if validation found a closer match
-    if validation.get("corrected_model"):
+    # A name already in the current provider's catalogue is what the user
+    # asked for. A live listing can offer a close neighbour (deepseek-v4-flash
+    # vs deepseek-v4.1-flash) and the 0.9 match would silently replace it.
+    if validation.get("corrected_model") and not resolved_in_current_catalog:
         new_model = validation["corrected_model"]
 
     # --- Copilot api_mode override ---
@@ -1294,7 +1296,10 @@ def switch_model(
 
     # --- Collect warnings ---
     warnings: list[str] = []
-    if validation.get("message"):
+    # A suppressed correction must not warn about a change that did not happen.
+    if validation.get("message") and (
+        not validation.get("corrected_model") or not resolved_in_current_catalog
+    ):
         warnings.append(validation["message"])
     hermes_warn = _check_hermes_model_warning(new_model)
     if hermes_warn:

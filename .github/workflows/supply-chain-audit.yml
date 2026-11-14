@@ -42,7 +42,7 @@ jobs:
   scan:
     name: Scan PR for critical supply chain risks
     if: inputs.scan
-    runs-on: coolify-ci
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -163,7 +163,7 @@ jobs:
   dep-bounds:
     name: Check PyPI dependency upper bounds
     if: inputs.deps
-    runs-on: coolify-ci
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -228,7 +228,7 @@ jobs:
   mcp-catalog-review:
     name: MCP catalog security review
     if: inputs.mcp_catalog
-    runs-on: coolify-ci
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

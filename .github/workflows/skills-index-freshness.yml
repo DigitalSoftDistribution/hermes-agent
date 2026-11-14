@@ -19,7 +19,7 @@ permissions:
 jobs:
   check-freshness:
     if: github.repository == 'NousResearch/hermes-agent'
-    runs-on: coolify-ci
+    runs-on: ubuntu-latest
     steps:
       - name: Probe live index
         id: probe

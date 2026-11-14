@@ -1,4 +1,0 @@
-# coolify-ci is the org self-hosted pool. actionlint does not know it unless named here.
-self-hosted-runner:
-  labels:
-    - coolify-ci

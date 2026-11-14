@@ -84,20 +84,25 @@ jobs:
             echo '[]' > .lint-reports/base/ruff.json
             echo '[]' > .lint-reports/base/ty.json
           else
-            git worktree add --detach /tmp/lint-base "$BASE_SHA"
+            # runner.temp is emptied between runs. A fixed path under /tmp survives a cancel.
+            git worktree add --detach "$RUNNER_TEMP/lint-base" "$BASE_SHA"
             (
-              cd /tmp/lint-base
+              cd "$RUNNER_TEMP/lint-base"
               ruff check --output-format json --exit-zero \
                 > "$GITHUB_WORKSPACE/.lint-reports/base/ruff.json" || true
               ty check --output-format gitlab --exit-zero \
                 > "$GITHUB_WORKSPACE/.lint-reports/base/ty.json" || true
             )
-            git worktree remove --force /tmp/lint-base
+            git worktree remove --force "$RUNNER_TEMP/lint-base"
           fi
           echo "base ruff: $(wc -c < .lint-reports/base/ruff.json) bytes"
           echo "base ty:   $(wc -c < .lint-reports/base/ty.json) bytes"
 
       - name: Generate diff summary
+        env:
+          # Untrusted branch name. An env value is not expanded while the script
+          # is generated, so the name stays data. GitHub secure-use reference.
+          HEAD_REF: ${{ inputs.event_name == 'pull_request' && github.head_ref || github.ref_name }}
         run: |
           python scripts/lint_diff.py \
             --base-ruff .lint-reports/base/ruff.json \
@@ -105,7 +110,7 @@ jobs:
             --base-ty   .lint-reports/base/ty.json \
             --head-ty   .lint-reports/head/ty.json \
             --base-ref  "${{ steps.base.outputs.ref }}" \
-            --head-ref  "${{ inputs.event_name == 'pull_request' && github.head_ref || github.ref_name }}" \
+            --head-ref  "$HEAD_REF" \
             --output    .lint-reports/summary.md
           cat .lint-reports/summary.md >> "$GITHUB_STEP_SUMMARY"
 

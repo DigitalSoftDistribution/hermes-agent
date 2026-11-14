@@ -2,9 +2,3 @@
 self-hosted-runner:
   labels:
     - coolify-ci
-paths:
-  # Pre-existing on main, not touched by this change: an inline script interpolates
-  # github.head_ref. Left as-is; ignored so the lint of this change exits clean.
-  .github/workflows/lint.yml:
-    ignore:
-      - "github.head_ref. is potentially untrusted"

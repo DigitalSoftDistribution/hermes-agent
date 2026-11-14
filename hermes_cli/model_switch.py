@@ -1296,7 +1296,10 @@ def switch_model(
 
     # --- Collect warnings ---
     warnings: list[str] = []
-    if validation.get("message"):
+    # A suppressed correction must not warn about a change that did not happen.
+    if validation.get("message") and (
+        not validation.get("corrected_model") or not resolved_in_current_catalog
+    ):
         warnings.append(validation["message"])
     hermes_warn = _check_hermes_model_warning(new_model)
     if hermes_warn:
